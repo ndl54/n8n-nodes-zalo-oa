@@ -1,0 +1,3 @@
+[submodule "zalo-java-sdk"]
+	path = zalo-java-sdk
+	url = git@github.com:ndl54/zalo-java-sdk.git
