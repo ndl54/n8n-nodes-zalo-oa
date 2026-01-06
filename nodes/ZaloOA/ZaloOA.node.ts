@@ -1,4 +1,5 @@
 import {
+	IDataObject,
 	IExecuteFunctions,
 	INodeExecutionData,
 	INodeType,
@@ -24,6 +25,7 @@ import {
 import { zaloOAOperations, zaloOAFields } from './ZaloOADescription';
 import axios from 'axios';
 import FormData from 'form-data';
+import { ZaloOATokenClient } from './shared/ZaloOATokenClient';
 
 export class ZaloOA implements INodeType {
 	description: INodeTypeDescription = {
@@ -71,8 +73,7 @@ export class ZaloOA implements INodeType {
 		const operation = this.getNodeParameter('operation', 0) as string;
 		const credentials = await this.getCredentials('zaloOAApi');
 
-		// Lấy access token từ credentials
-		const accessToken = credentials.accessToken as string;
+		const tokenClient = new ZaloOATokenClient(this, credentials as unknown as IDataObject);
 		const baseUrl = 'https://openapi.zalo.me/v3.0/oa';
 
 		// Xử lý các operations khác nhau
@@ -88,9 +89,10 @@ export class ZaloOA implements INodeType {
 						const messageType = this.getNodeParameter('messageType', i) as string || "cs";
 
 						// MessageV3 API format
-						const response = await axios.post(
-							`${baseUrl}/message/${messageType}`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/message/${messageType}`,
+							data: {
 								recipient: {
 									user_id: userId,
 								},
@@ -98,13 +100,10 @@ export class ZaloOA implements INodeType {
 									text,
 								},
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -154,9 +153,10 @@ export class ZaloOA implements INodeType {
 						const messageType = this.getNodeParameter('messageType', i) as string;
 
 						// MessageV3 API format
-						const response = await axios.post(
-							`${baseUrl}/message/${messageType}`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/message/${messageType}`,
+							data: {
 								recipient: {
 									user_id: userId,
 								},
@@ -164,13 +164,10 @@ export class ZaloOA implements INodeType {
 									attachment,
 								},
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -189,9 +186,10 @@ export class ZaloOA implements INodeType {
 						const messageType = this.getNodeParameter('messageType', i) as string;
 
 						// MessageV3 API format
-						const response = await axios.post(
-							`${baseUrl}/message/${messageType}`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/message/${messageType}`,
+							data: {
 								recipient: {
 									user_id: userId,
 								},
@@ -204,13 +202,10 @@ export class ZaloOA implements INodeType {
 									},
 								},
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -247,9 +242,10 @@ export class ZaloOA implements INodeType {
 						const messageType = this.getNodeParameter('messageType', i) as string;
 
 						// MessageV3 API format
-						const response = await axios.post(
-							`${baseUrl}/message/${messageType}`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/message/${messageType}`,
+							data: {
 								recipient: {
 									user_id: userId,
 								},
@@ -264,21 +260,18 @@ export class ZaloOA implements INodeType {
 													title: listTitle,
 													type: 'oa.open.url',
 													payload: {
-														url: 'https://zalo.me'
-													}
-												}
-											]
+														url: 'https://zalo.me',
+													},
+												},
+											],
 										},
 									},
 								},
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -303,18 +296,16 @@ export class ZaloOA implements INodeType {
 							});
 
 							// Gọi API lấy thông tin người theo dõi
-							const response = await axios.get(
-								`${v3BaseUrl}/user/detail`,
-								{
-									params: {
-										data: dataParam,
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v3BaseUrl}/user/detail`,
+								params: {
+									data: dataParam,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							returnData.push({
 								json: response.data,
@@ -372,34 +363,30 @@ export class ZaloOA implements INodeType {
 								console.log(`Uploading image with filename: ${binaryFile.fileName}, mime type: ${binaryFile.mimeType}`);
 
 								// Gửi request để upload hình ảnh
-								response = await axios.post(
-									`${baseUrl}/upload/image`,
-									formData,
-									{
-										headers: {
-											access_token: accessToken,
-											...formData.getHeaders(),
-										},
+								response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/upload/image`,
+									data: formData,
+									headers: {
+										...formData.getHeaders(),
 									},
-								);
+								});
 							} else {
 								const imageUrl = this.getNodeParameter('imageUrl', i) as string;
 
 								// Log để debug
 								console.log(`Uploading image from URL: ${imageUrl}`);
 
-								response = await axios.post(
-									`${baseUrl}/upload/image`,
-									{
+								response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/upload/image`,
+									data: {
 										url: imageUrl,
 									},
-									{
-										headers: {
-											access_token: accessToken,
-											'Content-Type': 'application/json',
-										},
+									headers: {
+										'Content-Type': 'application/json',
 									},
-								);
+								});
 							}
 
 							// Log response để debug
@@ -465,34 +452,30 @@ export class ZaloOA implements INodeType {
 								console.log(`Uploading file with filename: ${binaryFile.fileName}, mime type: ${binaryFile.mimeType}`);
 
 								// Send request to upload file
-								response = await axios.post(
-									`${baseUrl}/upload/file`,
-									formData,
-									{
-										headers: {
-											access_token: accessToken,
-											...formData.getHeaders(),
-										},
+								response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/upload/file`,
+									data: formData,
+									headers: {
+										...formData.getHeaders(),
 									},
-								);
+								});
 							} else {
 								const fileUrl = this.getNodeParameter('fileUrl', i) as string;
 
 								// Log for debugging
 								console.log(`Uploading file from URL: ${fileUrl}`);
 
-								response = await axios.post(
-									`${baseUrl}/upload/file`,
-									{
+								response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/upload/file`,
+									data: {
 										url: fileUrl,
 									},
-									{
-										headers: {
-											access_token: accessToken,
-											'Content-Type': 'application/json',
-										},
+									headers: {
+										'Content-Type': 'application/json',
 									},
-								);
+								});
 							}
 
 							// Log response for debugging
@@ -537,10 +520,9 @@ export class ZaloOA implements INodeType {
 							console.log(`Lấy danh sách tag với offset: ${offset}, count: ${count}`);
 
 							// Thử gọi API v3.0 trước
-							const response = await axios.get(`${baseUrl}/tag/gettagsofoa`, {
-								headers: {
-									access_token: accessToken,
-								},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${baseUrl}/tag/gettagsofoa`,
 								params: {
 									offset,
 									count,
@@ -551,7 +533,7 @@ export class ZaloOA implements INodeType {
 							console.log('Kết quả lấy danh sách tag:', JSON.stringify(response.data));
 
 							// Xử lý dữ liệu trả về để hiển thị rõ ràng tag_id và tag_name
-							let processedData = response.data;
+							let processedData: any = response.data;
 
 							// Kiểm tra nếu có dữ liệu tags trong response
 							if (processedData.data && Array.isArray(processedData.data.tags)) {
@@ -594,10 +576,9 @@ export class ZaloOA implements INodeType {
 							try {
 								// Nếu API v3.0 thất bại, thử gọi API v2.0
 								const v2BaseUrl = 'https://openapi.zalo.me/v2.0/oa';
-								const response = await axios.get(`${v2BaseUrl}/tag/gettagsofoa`, {
-									headers: {
-										access_token: accessToken,
-									},
+								const response = await tokenClient.request({
+									method: 'GET',
+									url: `${v2BaseUrl}/tag/gettagsofoa`,
 									params: {
 										offset,
 										count,
@@ -608,7 +589,7 @@ export class ZaloOA implements INodeType {
 								console.log('Kết quả lấy danh sách tag (API v2.0):', JSON.stringify(response.data));
 
 								// Xử lý dữ liệu trả về để hiển thị rõ ràng tag_id và tag_name
-								let processedData = response.data;
+								let processedData: any = response.data;
 
 								// Kiểm tra nếu có dữ liệu tags trong response
 								if (processedData.data && Array.isArray(processedData.data.tags)) {
@@ -677,19 +658,17 @@ export class ZaloOA implements INodeType {
 
 							// Cách 1: Sử dụng tag_id (cách cũ)
 							try {
-								const response = await axios.post(
-									`${baseUrl}/tag/taguser`,
-									{
+								const response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/tag/taguser`,
+									data: {
 										user_id: userId,
 										tag_id: tagId,
 									},
-									{
-										headers: {
-											access_token: accessToken,
-											'Content-Type': 'application/json',
-										},
+									headers: {
+										'Content-Type': 'application/json',
 									},
-								);
+								});
 
 								// Log response để debug
 								console.log('Kết quả gán tag (sử dụng tag_id):', JSON.stringify(response.data));
@@ -714,19 +693,17 @@ export class ZaloOA implements INodeType {
 
 							// Cách 2: Sử dụng tag_name (cách mới trong API v3)
 							try {
-								const response = await axios.post(
-									`${baseUrl}/tag/taguser`,
-									{
+								const response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/tag/taguser`,
+									data: {
 										user_id: userId,
 										tag_name: tagId, // Sử dụng tagId như là tag_name
 									},
-									{
-										headers: {
-											access_token: accessToken,
-											'Content-Type': 'application/json',
-										},
+									headers: {
+										'Content-Type': 'application/json',
 									},
-								);
+								});
 
 								// Log response để debug
 								console.log('Kết quả gán tag (sử dụng tag_name):', JSON.stringify(response.data));
@@ -786,15 +763,13 @@ export class ZaloOA implements INodeType {
 						// API GET OA Profile không cần tham số bổ sung
 						try {
 							// Thử gọi API v3.0 trước
-							const response = await axios.get(
-								`${baseUrl}/getoa`,
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${baseUrl}/getoa`,
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							returnData.push({
 								json: response.data,
@@ -809,15 +784,13 @@ export class ZaloOA implements INodeType {
 
 							// Nếu API v3.0 thất bại, thử gọi API v2.0
 							const v2BaseUrl = 'https://openapi.zalo.me/v2.0/oa';
-							const response = await axios.get(
-								`${v2BaseUrl}/getoa`,
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v2BaseUrl}/getoa`,
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							returnData.push({
 								json: response.data,
@@ -846,18 +819,16 @@ export class ZaloOA implements INodeType {
 							});
 
 							// Gọi API lấy danh sách người theo dõi
-							const response = await axios.get(
-								`${v3BaseUrl}/user/getlist`,
-								{
-									params: {
-										data: dataParam,
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v3BaseUrl}/user/getlist`,
+								params: {
+									data: dataParam,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							returnData.push({
 								json: response.data,
@@ -915,16 +886,14 @@ export class ZaloOA implements INodeType {
 								console.log(`Uploading GIF with filename: ${binaryFile.fileName}, mime type: ${binaryFile.mimeType}`);
 
 								// Send request to upload GIF
-								response = await axios.post(
-									`${baseUrl}/upload/gif`,
-									formData,
-									{
-										headers: {
-											access_token: accessToken,
-											...formData.getHeaders(),
-										},
+								response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/upload/gif`,
+									data: formData,
+									headers: {
+										...formData.getHeaders(),
 									},
-								);
+								});
 							} else {
 								const gifUrl = this.getNodeParameter('gifUrl', i) as string;
 
@@ -942,16 +911,14 @@ export class ZaloOA implements INodeType {
 								});
 
 								// Send request to upload GIF
-								response = await axios.post(
-									`${baseUrl}/upload/gif`,
-									formData,
-									{
-										headers: {
-											access_token: accessToken,
-											...formData.getHeaders(),
-										},
+								response = await tokenClient.request({
+									method: 'POST',
+									url: `${baseUrl}/upload/gif`,
+									data: formData,
+									headers: {
+										...formData.getHeaders(),
 									},
-								);
+								});
 							}
 
 							// Log response for debugging
@@ -1002,18 +969,16 @@ export class ZaloOA implements INodeType {
 							});
 
 							// Gọi API lấy danh sách cuộc trò chuyện gần đây
-							const response = await axios.get(
-								`${v2BaseUrl}/listrecentchat`,
-								{
-									params: {
-										data: dataParam,
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v2BaseUrl}/listrecentchat`,
+								params: {
+									data: dataParam,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							returnData.push({
 								json: response.data,
@@ -1058,18 +1023,16 @@ export class ZaloOA implements INodeType {
 							});
 
 							// Gọi API lấy lịch sử hội thoại với người dùng
-							const response = await axios.get(
-								`${v2BaseUrl}/conversation`,
-								{
-									params: {
-										data: dataParam,
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v2BaseUrl}/conversation`,
+								params: {
+									data: dataParam,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							returnData.push({
 								json: response.data,
@@ -1109,18 +1072,16 @@ export class ZaloOA implements INodeType {
 
 							// Gọi API kiểm tra trạng thái tin nhắn
 							// Trong API v3, endpoint là /message/status và cần gửi dữ liệu dạng POST
-							const response = await axios.post(
-								`${baseUrl}/message/status`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/message/status`,
+								data: {
 									message_id: messageId,
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Kết quả kiểm tra trạng thái tin nhắn:', JSON.stringify(response.data));
@@ -1159,18 +1120,16 @@ export class ZaloOA implements INodeType {
 					else if (operation === 'removeTag') {
 						const tagId = this.getNodeParameter('tagId', i) as string;
 
-						const response = await axios.post(
-							`${baseUrl}/tag/rmtag`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/tag/rmtag`,
+							data: {
 								tag_id: tagId,
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -1185,19 +1144,17 @@ export class ZaloOA implements INodeType {
 						const userId = this.getNodeParameter('userId', i) as string;
 						const tagId = this.getNodeParameter('tagId', i) as string;
 
-						const response = await axios.post(
-							`${baseUrl}/tag/rmfollowerfromtag`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/tag/rmfollowerfromtag`,
+							data: {
 								user_id: userId,
 								tag_id: tagId,
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -1240,18 +1197,16 @@ export class ZaloOA implements INodeType {
 							};
 						});
 
-						const response = await axios.post(
-							`${baseUrl}/menu`,
-							{
+						const response = await tokenClient.request({
+							method: 'POST',
+							url: `${baseUrl}/menu`,
+							data: {
 								menu_items: menuItems,
 							},
-							{
-								headers: {
-									access_token: accessToken,
-									'Content-Type': 'application/json',
-								},
+							headers: {
+								'Content-Type': 'application/json',
 							},
-						);
+						});
 
 						returnData.push({
 							json: response.data,
@@ -1306,18 +1261,16 @@ export class ZaloOA implements INodeType {
 							console.log(`Cập nhật thông tin người dùng với user_id: ${userId}, thông tin: ${JSON.stringify(sharedInfo)}`);
 
 							// Gọi API cập nhật thông tin người theo dõi
-							const response = await axios.post(
-								`${baseUrl}/user/update`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/user/update`,
+								data: {
 									data: dataParam
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Kết quả cập nhật thông tin người dùng:', JSON.stringify(response.data));
@@ -1385,9 +1338,10 @@ export class ZaloOA implements INodeType {
 							const v3BaseUrl = 'https://openapi.zalo.me/v2.0';
 
 							// Tạo request để tạo bài viết
-							const response = await axios.post(
-								`${v3BaseUrl}/article/create`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${v3BaseUrl}/article/create`,
+								data: {
 									type: 'normal',
 									title,
 									author,
@@ -1397,13 +1351,10 @@ export class ZaloOA implements INodeType {
 									status,
 									comment,
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Create article response:', JSON.stringify(response.data));
@@ -1473,9 +1424,10 @@ export class ZaloOA implements INodeType {
 							const v3BaseUrl = 'https://openapi.zalo.me/v2.0';
 
 							// Tạo request để cập nhật bài viết
-							const response = await axios.post(
-								`${v3BaseUrl}/article/update`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${v3BaseUrl}/article/update`,
+								data: {
 									id: token,
 									type: 'normal',
 									title,
@@ -1486,13 +1438,10 @@ export class ZaloOA implements INodeType {
 									status,
 									comment,
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Update article response:', JSON.stringify(response.data));
@@ -1540,18 +1489,16 @@ export class ZaloOA implements INodeType {
 							const v3BaseUrl = 'https://openapi.zalo.me/v2.0';
 
 							// Tạo request để xóa bài viết
-							const response = await axios.post(
-								`${v3BaseUrl}/article/remove`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${v3BaseUrl}/article/remove`,
+								data: {
 									id: token,
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Remove article response:', JSON.stringify(response.data));
@@ -1602,21 +1549,19 @@ export class ZaloOA implements INodeType {
 							const v2BaseUrl = 'https://openapi.zalo.me/v2.0';
 
 							// Gọi API lấy danh sách bài viết
-							const response = await axios.get(
-								`${v2BaseUrl}/article/getslice?offset=${offset}&limit=${Math.min(limit, 50)}&type=${type}`,
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v2BaseUrl}/article/getslice?offset=${offset}&limit=${Math.min(limit, 50)}&type=${type}`,
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Kết quả lấy danh sách bài viết:', JSON.stringify(response.data));
 
 							// Xử lý dữ liệu trả về để hiển thị rõ ràng token bài viết
-							const processedData = response.data;
+							const processedData: any = response.data;
 
 							// Kiểm tra nếu có dữ liệu bài viết trong response
 							if (processedData.data && Array.isArray(processedData.data.medias)) {
@@ -1671,18 +1616,16 @@ export class ZaloOA implements INodeType {
 							const v3BaseUrl = 'https://openapi.zalo.me/v2.0';
 
 							// Gọi API lấy chi tiết bài viết
-							const response = await axios.get(
-								`${v3BaseUrl}/article/getdetail`,
-								{
-									params: {
-										id: token
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${v3BaseUrl}/article/getdetail`,
+								params: {
+									id: token,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							// Log response để debug
 							console.log('Get article detail response:', JSON.stringify(response.data));
@@ -1743,9 +1686,10 @@ export class ZaloOA implements INodeType {
 							console.log(`Creating product with name: ${name}, price: ${price}`);
 
 							// Tạo request để tạo sản phẩm
-							const response = await axios.post(
-								`${baseUrl}/store/product/create`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/store/product/create`,
+								data: {
 									name,
 									price,
 									description,
@@ -1754,13 +1698,10 @@ export class ZaloOA implements INodeType {
 									photos,
 									status,
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Create product response:', JSON.stringify(response.data));
@@ -1821,9 +1762,10 @@ export class ZaloOA implements INodeType {
 							console.log(`Updating product with ID: ${productId}, name: ${name}`);
 
 							// Tạo request để cập nhật sản phẩm
-							const response = await axios.post(
-								`${baseUrl}/store/product/update`,
-								{
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/store/product/update`,
+								data: {
 									id: productId,
 									name,
 									price,
@@ -1833,13 +1775,10 @@ export class ZaloOA implements INodeType {
 									photos,
 									status,
 								},
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Update product response:', JSON.stringify(response.data));
@@ -1888,18 +1827,16 @@ export class ZaloOA implements INodeType {
 							});
 
 							// Gọi API lấy thông tin sản phẩm
-							const response = await axios.get(
-								`${baseUrl}/store/product/getproduct`,
-								{
-									params: {
-										data: dataParam,
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${baseUrl}/store/product/getproduct`,
+								params: {
+									data: dataParam,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							// Log response để debug
 							console.log('Get product info response:', JSON.stringify(response.data));
@@ -1956,18 +1893,16 @@ export class ZaloOA implements INodeType {
 							}
 
 							// Gọi API lấy danh sách sản phẩm
-							const response = await axios.get(
-								`${baseUrl}/store/product/getproductofoa`,
-								{
-									params: {
-										data: JSON.stringify(dataParam),
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${baseUrl}/store/product/getproductofoa`,
+								params: {
+									data: JSON.stringify(dataParam),
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							// Log response để debug
 							console.log('Get product list response:', JSON.stringify(response.data));
@@ -2026,16 +1961,14 @@ export class ZaloOA implements INodeType {
 							console.log(`Creating category with name: ${name}`);
 
 							// Tạo request để tạo danh mục
-							const response = await axios.post(
-								`${baseUrl}/store/category/create`,
-								requestData,
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/store/category/create`,
+								data: requestData,
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Create category response:', JSON.stringify(response.data));
@@ -2096,16 +2029,14 @@ export class ZaloOA implements INodeType {
 							console.log(`Updating category with ID: ${categoryId}, name: ${name}`);
 
 							// Tạo request để cập nhật danh mục
-							const response = await axios.post(
-								`${baseUrl}/store/category/update`,
-								requestData,
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/store/category/update`,
+								data: requestData,
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Update category response:', JSON.stringify(response.data));
@@ -2156,18 +2087,16 @@ export class ZaloOA implements INodeType {
 							});
 
 							// Gọi API lấy danh sách danh mục
-							const response = await axios.get(
-								`${baseUrl}/store/category/getcategoryofoa`,
-								{
-									params: {
-										data: dataParam,
-									},
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'GET',
+								url: `${baseUrl}/store/category/getcategoryofoa`,
+								params: {
+									data: dataParam,
 								},
-							);
+								headers: {
+									'Content-Type': 'application/json',
+								},
+							});
 
 							// Log response để debug
 							console.log('Get category list response:', JSON.stringify(response.data));
@@ -2248,16 +2177,14 @@ export class ZaloOA implements INodeType {
 							console.log(`Creating order for user: ${userId}`);
 
 							// Tạo request để tạo đơn hàng
-							const response = await axios.post(
-								`${baseUrl}/store/order/create`,
-								requestData,
-								{
-									headers: {
-										access_token: accessToken,
-										'Content-Type': 'application/json',
-									},
+							const response = await tokenClient.request({
+								method: 'POST',
+								url: `${baseUrl}/store/order/create`,
+								data: requestData,
+								headers: {
+									'Content-Type': 'application/json',
 								},
-							);
+							});
 
 							// Log response để debug
 							console.log('Create order response:', JSON.stringify(response.data));
