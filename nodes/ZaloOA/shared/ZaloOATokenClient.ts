@@ -1,4 +1,6 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
+import { promises as fs } from 'fs';
+import * as path from 'path';
 import { IDataObject, IExecuteFunctions, NodeOperationError } from 'n8n-workflow';
 
 type TokenRefreshResponse = {
@@ -19,6 +21,7 @@ type TokenState = {
 const OAUTH_TOKEN_URL = 'https://oauth.zaloapp.com/v4/oa/access_token';
 const ACCESS_TOKEN_SKEW_MS = 60_000;
 const REFRESH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const TOKEN_STORE_FILENAME = 'zalo-oa-token-store.json';
 
 function nowMs() {
 	return Date.now();
@@ -53,38 +56,74 @@ function isTokenLikelyInvalid(data: unknown, status?: number): boolean {
 	return false;
 }
 
+async function readJsonFile(filePath: string): Promise<IDataObject> {
+	try {
+		const raw = await fs.readFile(filePath, 'utf8');
+		return JSON.parse(raw) as IDataObject;
+	} catch (error) {
+		const nodeError = error as { code?: string };
+		if (nodeError.code === 'ENOENT') return {};
+		throw error;
+	}
+}
+
+async function writeJsonFileAtomic(filePath: string, data: IDataObject): Promise<void> {
+	const tmpPath = `${filePath}.tmp`;
+	await fs.mkdir(path.dirname(filePath), { recursive: true });
+	await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+	await fs.rename(tmpPath, filePath);
+}
+
 export class ZaloOATokenClient {
-	private readonly staticData: IDataObject;
 	private readonly storageKey: string;
+	private readonly storePath: string;
+	private state?: TokenState;
 	private inflightRefresh?: Promise<TokenState>;
 
 	constructor(
 		private readonly thisArg: IExecuteFunctions,
 		private readonly credentials: IDataObject,
 	) {
-		this.staticData = thisArg.getWorkflowStaticData('global') as IDataObject;
 		const credentialId = (thisArg.getNode().credentials as IDataObject | undefined)?.zaloOAApi as
 			| { id?: string | number }
 			| undefined;
 		const appId = String(this.credentials.appId ?? '');
 		this.storageKey = `zaloOAApi:${credentialId?.id ?? appId ?? 'unknown'}`;
+		this.storePath = path.join(process.env.N8N_USER_FOLDER ?? process.env.HOME ?? process.cwd(), TOKEN_STORE_FILENAME);
 	}
 
-	private readState(): TokenState | undefined {
-		const existing = this.staticData[this.storageKey];
+	private async readStore(): Promise<IDataObject> {
+		return await readJsonFile(this.storePath);
+	}
+
+	private async writeStore(store: IDataObject) {
+		await writeJsonFileAtomic(this.storePath, store);
+	}
+
+	private async loadStateFromStore(): Promise<TokenState | undefined> {
+		const store = await this.readStore();
+		const existing = store[this.storageKey];
 		if (!existing || typeof existing !== 'object') return undefined;
 		const state = existing as Partial<TokenState>;
 		if (!state.accessToken || !state.refreshToken) return undefined;
 		return state as TokenState;
 	}
 
-	private writeState(state: TokenState) {
-		this.staticData[this.storageKey] = state as unknown as IDataObject;
+	private async persistState(state: TokenState): Promise<void> {
+		const store = await this.readStore();
+		store[this.storageKey] = state as unknown as IDataObject;
+		await this.writeStore(store);
+		this.state = state;
 	}
 
-	private seedStateIfMissing(): TokenState {
-		const existing = this.readState();
-		if (existing) return existing;
+	private async seedStateIfMissing(): Promise<TokenState> {
+		if (this.state) return this.state;
+
+		const existing = await this.loadStateFromStore();
+		if (existing) {
+			this.state = existing;
+			return existing;
+		}
 
 		const accessToken = String(this.credentials.accessToken ?? '');
 		const refreshToken = String(this.credentials.refreshToken ?? '');
@@ -96,7 +135,7 @@ export class ZaloOATokenClient {
 		}
 
 		const state: TokenState = { accessToken, refreshToken };
-		this.writeState(state);
+		await this.persistState(state);
 		return state;
 	}
 
@@ -131,6 +170,11 @@ export class ZaloOATokenClient {
 				},
 			});
 		} catch (error) {
+			const updatedState = await this.loadStateFromStore();
+			if (updatedState && this.isAccessTokenValid(updatedState)) {
+				this.state = updatedState;
+				return updatedState;
+			}
 			throw new NodeOperationError(
 				this.thisArg.getNode(),
 				error as Error,
@@ -142,6 +186,11 @@ export class ZaloOATokenClient {
 		}
 
 		if (isTokenLikelyInvalid(response.data, response.status)) {
+			const updatedState = await this.loadStateFromStore();
+			if (updatedState && this.isAccessTokenValid(updatedState)) {
+				this.state = updatedState;
+				return updatedState;
+			}
 			throw new NodeOperationError(this.thisArg.getNode(), response.data as unknown as Error, {
 				message:
 					'Zalo OA token refresh was rejected. Please re-authorize and update credentials (refresh_token may be expired/used).',
@@ -162,12 +211,12 @@ export class ZaloOATokenClient {
 			accessTokenExpiresAt: expiresInMs ? nowMs() + expiresInMs : undefined,
 			refreshTokenExpiresAt: nowMs() + REFRESH_TOKEN_TTL_MS,
 		};
-		this.writeState(updated);
+		await this.persistState(updated);
 		return updated;
 	}
 
 	async getAccessToken(): Promise<string> {
-		const state = this.seedStateIfMissing();
+		const state = await this.seedStateIfMissing();
 		if (this.isAccessTokenValid(state)) return state.accessToken;
 		const refreshed = await this.refreshAccessToken();
 		return refreshed.accessToken;
@@ -175,7 +224,7 @@ export class ZaloOATokenClient {
 
 	async refreshAccessToken(): Promise<TokenState> {
 		if (!this.inflightRefresh) {
-			const state = this.seedStateIfMissing();
+			const state = await this.seedStateIfMissing();
 			this.inflightRefresh = this.doRefresh(state).finally(() => {
 				this.inflightRefresh = undefined;
 			});
