@@ -8,7 +8,12 @@ type TokenRefreshResponse = {
 	refresh_token?: string;
 	expires_in?: string | number;
 	error?: number;
+	error_code?: number;
+	error_name?: string;
+	error_reason?: string;
+	error_description?: string;
 	message?: string;
+	error_message?: string;
 };
 
 type TokenState = {
@@ -20,6 +25,7 @@ type TokenState = {
 
 const OAUTH_TOKEN_URL = 'https://oauth.zaloapp.com/v4/oa/access_token';
 const ACCESS_TOKEN_SKEW_MS = 60_000;
+const ACCESS_TOKEN_TTL_MS = 25 * 60 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const TOKEN_STORE_FILENAME = 'zalo-oa-token-store.json';
 
@@ -43,7 +49,11 @@ function isTokenLikelyInvalid(data: unknown, status?: number): boolean {
 	const anyData = data as Record<string, unknown>;
 
 	const error = anyData.error ?? anyData.error_code;
-	const message = anyData.message ?? anyData.error_message;
+	const message =
+		anyData.message ??
+		anyData.error_message ??
+		anyData.error_description ??
+		anyData.error_name;
 
 	if (typeof message === 'string' && /access[_\s-]?token|refresh[_\s-]?token|token/i.test(message)) {
 		return true;
@@ -54,6 +64,18 @@ function isTokenLikelyInvalid(data: unknown, status?: number): boolean {
 	}
 
 	return false;
+}
+
+function extractOauthErrorMessage(data: unknown): string | undefined {
+	if (!data || typeof data !== 'object') return undefined;
+	const anyData = data as Record<string, unknown>;
+	const message =
+		(anyData.error_description as string | undefined) ??
+		(anyData.error_message as string | undefined) ??
+		(anyData.error_name as string | undefined) ??
+		(anyData.message as string | undefined);
+	if (typeof message === 'string' && message.trim()) return message.trim();
+	return undefined;
 }
 
 async function readJsonFile(filePath: string): Promise<IDataObject> {
@@ -134,7 +156,12 @@ export class ZaloOATokenClient {
 			);
 		}
 
-		const state: TokenState = { accessToken, refreshToken };
+		const state: TokenState = {
+			accessToken,
+			refreshToken,
+			accessTokenExpiresAt: nowMs() + ACCESS_TOKEN_TTL_MS,
+			refreshTokenExpiresAt: nowMs() + REFRESH_TOKEN_TTL_MS,
+		};
 		await this.persistState(state);
 		return state;
 	}
@@ -145,6 +172,12 @@ export class ZaloOATokenClient {
 		return nowMs() + ACCESS_TOKEN_SKEW_MS < state.accessTokenExpiresAt;
 	}
 
+	private isRefreshTokenValid(state: TokenState): boolean {
+		if (!state.refreshToken) return false;
+		if (!state.refreshTokenExpiresAt) return true;
+		return nowMs() < state.refreshTokenExpiresAt;
+	}
+
 	private async doRefresh(state: TokenState): Promise<TokenState> {
 		const appId = String(this.credentials.appId ?? '');
 		const secretKey = String(this.credentials.secretKey ?? '');
@@ -153,6 +186,13 @@ export class ZaloOATokenClient {
 			throw new NodeOperationError(
 				this.thisArg.getNode(),
 				'Missing Zalo OA credentials: appId/secretKey are required for token refresh',
+			);
+		}
+
+		if (!this.isRefreshTokenValid(state)) {
+			throw new NodeOperationError(
+				this.thisArg.getNode(),
+				'Zalo OA refresh token has expired. Please re-authorize and update credentials.',
 			);
 		}
 
@@ -191,18 +231,24 @@ export class ZaloOATokenClient {
 				this.state = updatedState;
 				return updatedState;
 			}
+			const oauthMessage = extractOauthErrorMessage(response.data);
 			throw new NodeOperationError(this.thisArg.getNode(), response.data as unknown as Error, {
 				message:
+					oauthMessage ??
 					'Zalo OA token refresh was rejected. Please re-authorize and update credentials (refresh_token may be expired/used).',
 			});
 		}
 
 		const accessToken = String(response.data.access_token ?? '');
 		const refreshToken = String(response.data.refresh_token ?? '');
-		const expiresInMs = parseExpiresInMs(response.data.expires_in);
+		const expiresInMs = parseExpiresInMs(response.data.expires_in) ?? ACCESS_TOKEN_TTL_MS;
 
 		if (!accessToken || !refreshToken) {
-			throw new NodeOperationError(this.thisArg.getNode(), 'Unexpected token refresh response from Zalo OAuth');
+			const oauthMessage = extractOauthErrorMessage(response.data);
+			throw new NodeOperationError(
+				this.thisArg.getNode(),
+				oauthMessage ?? 'Unexpected token refresh response from Zalo OAuth',
+			);
 		}
 
 		const updated: TokenState = {
